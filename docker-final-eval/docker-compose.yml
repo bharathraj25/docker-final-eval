@@ -1,0 +1,123 @@
+version: '3'
+services:
+  redis:
+    image: redis
+    ports:
+      - '6379:6379'
+
+  auth-db:
+    image: postgres
+    environment:
+      POSTGRES_USER: bharathraj
+      POSTGRES_PASSWORD: yesitsme
+      POSTGRES_DB: auth-user
+    ports:
+      - '5435:5432'
+    volumes:
+      - ./database-auth/data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U bharathraj -d auth-user']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  auth-server:
+    build:
+      context: ../auth-final-eval
+      args:
+        - no_cache=1
+    depends_on:
+      - auth-db
+      - redis
+    ports:
+      - '3004:3000'
+    environment:
+      DB_HOST: auth-db
+      DB_USER: bharathraj
+      DB_PASSWORD: yesitsme
+      DB_NAME: auth-user
+      DB_PORT: 5432
+      NODE_ENV: docker
+      SERVER_PORT: 3000
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      SECRET_KEY: some-secret-key
+
+  auth-migration:
+    build:
+      context: ../auth-final-eval
+      dockerfile: Dockerfile.migration
+    depends_on:
+      auth-db:
+        condition: service_healthy
+    environment:
+      DB_HOST: auth-db
+      DB_USER: bharathraj
+      DB_PASSWORD: yesitsme
+      DB_NAME: auth-user
+      DB_PORT: 5432
+      NODE_ENV: docker
+
+  service-db:
+    image: postgres
+    environment:
+      POSTGRES_USER: bharathraj
+      POSTGRES_PASSWORD: yesitsme
+      POSTGRES_DB: service-eval
+    ports:
+      - '5434:5432'
+    volumes:
+      - ./database-service/data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U bharathraj -d service-eval']
+      interval: 20s
+      timeout: 5s
+      retries: 5
+
+  service-server:
+    build:
+      context: ../backend-final-eval
+      args:
+        - no_cache=1
+    depends_on:
+      - service-db
+    ports:
+      - '3003:3000'
+    environment:
+      DB_HOST: service-db
+      DB_USER: bharathraj
+      DB_PASSWORD: yesitsme
+      DB_NAME: service-eval
+      DB_PORT: 5432
+      NODE_ENV: docker
+      SERVER_PORT: 3000
+      AUTH_URL: http://auth-server:3000
+
+  service-migration:
+    build:
+      context: ../backend-final-eval
+      dockerfile: Dockerfile.migration
+    depends_on:
+      service-db:
+        condition: service_healthy
+    environment:
+      DB_HOST: service-db
+      DB_USER: bharathraj
+      DB_PASSWORD: yesitsme
+      DB_NAME: service-eval
+      DB_PORT: 5432
+      NODE_ENV: docker
+
+  service-client:
+    build:
+      context: ../frontend-final-eval
+      args:
+        - no_cache=1
+    depends_on:
+      - service-server
+      - auth-server
+    ports:
+      - '3000:3000'
+    environment:
+      REACT_APP_BASE_URL_SERVICE: http://localhost:3003
+      REACT_APP_BASE_URL_AUTH: http://localhost:3004
